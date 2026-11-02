@@ -11,8 +11,8 @@ bot.on('text', async (ctx) => {
     // إعلام المستخدم أن البوت يكتب الآن
     await ctx.sendChatAction('typing');
 
-    // قائمة النماذج للاستبدال التلقائي في حال الزحام أو انتهاء صلاحية النموذج
-    const models = ["gemini-3.8-flash", "gemini-2.5-flash", "gemini-1.5-flash"];
+    // النماذج المعتمدة والمتاحة حالياً
+    const models = ["gemini-3.8-flash", "gemini-2.5-flash"];
     let replyText = null;
 
     for (const model of models) {
@@ -32,7 +32,7 @@ bot.on('text', async (ctx) => {
       // إذا حدث خطأ ضغط عالي أو نموذج غير متاح، جرب النموذج التالي
       if (data.error) {
         const errMsg = data.error.message || "";
-        if (errMsg.includes("high demand") || errMsg.includes("not available") || errMsg.includes("expired")) {
+        if (errMsg.includes("high demand") || errMsg.includes("not available") || errMsg.includes("expired") || errMsg.includes("not found")) {
           continue; // جرب النموذج الذي يليه
         }
         throw new Error(errMsg);
@@ -43,7 +43,7 @@ bot.on('text', async (ctx) => {
     }
 
     if (!replyText) {
-      replyText = "عذراً، جميع النماذج مشغولة حالياً، يرجى المحاولة بعد قليل.";
+      replyText = "عذراً، الخوادم مشغولة حالياً بسبب الضغط، يرجى المحاولة بعد قليل.";
     }
 
     await ctx.reply(replyText);
