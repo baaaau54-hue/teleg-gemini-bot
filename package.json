@@ -5,6 +5,7 @@
   "type": "module",
   "dependencies": {
     "@google/genai": "^2.24.0",
+    "exceljs": "^4.4.0",
     "telegraf": "^4.16.3"
   }
 }
