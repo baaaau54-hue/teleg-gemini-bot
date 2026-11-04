@@ -1,76 +1,62 @@
 # Telegram Gemini Bot
 
-Telegram webhook bot hosted as a Vercel serverless function. It uses Google's Gemini Interactions API and supports text, images, PDFs, supported audio/video files, per-user settings, conversation continuation, Google Search grounding, admin controls, and administrator-defined commands.
+Telegram webhook bot hosted as a Vercel serverless function. Uses Gemini Interactions and supports text, media, image generation, downloadable Excel tables, per-user Gemini API keys, conversation memory, Google Search, admin permissions, and custom prompt commands.
 
 ## Required Vercel environment variables
 
-Set in **Production** and redeploy:
+Set in **Production**, then redeploy:
 
-- `BOT_TOKEN` — Telegram token; keep secret. Revoke and replace any token previously exposed.
-- `GEMINI_API_KEY` — Google AI Studio API key; keep secret.
-- `BOT_ADMIN_IDS` — comma-separated Telegram numeric user IDs allowed to use admin commands, e.g. `123456789,987654321`. Do not use usernames.
+- `BOT_TOKEN` — Telegram token; keep secret. Revoke any previously exposed token.
+- `GEMINI_API_KEY` — service/default Gemini API key. Optional only if every user supplies their own key.
+- `BOT_ADMIN_IDS` — comma-separated numeric Telegram IDs for admins.
+- `USER_API_KEYS_ENCRYPTION_KEY` — required to accept personal API keys. Generate a strong random secret locally; never commit/share it. Changing it later makes existing encrypted user keys unreadable.
+- `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` — strongly recommended and required for reliable persistence of personal keys/settings in serverless deployments.
 
 Optional:
 
-- `GEMINI_MODEL` — default model, defaults to `gemini-3.8-flash`; it must be enabled for your Gemini API key.
-- `GEMINI_ALLOWED_MODELS` — comma-separated model IDs users/admins may select. If omitted, any syntactically valid ID can be selected; the API determines availability.
-- `MAX_FILE_BYTES` — upload limit in bytes (defaults to 15,000,000 and is capped at 18,000,000).
-- `BOT_ACCESS_MODE` — `open` (default) or `allowlist`. In allowlist mode, use `BOT_ALLOWED_USER_IDS` and/or `/allow`.
-- `BOT_ALLOWED_USER_IDS` — comma-separated initial Telegram IDs allowed in allowlist mode.
-- `TELEGRAM_WEBHOOK_SECRET` — optional. When set, configure the same value as Telegram `secret_token` using `setWebhook`.
-- `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` — optional Upstash Redis REST credentials for durable settings, previous interaction IDs, access lists, custom commands, and logs. Without Redis, state is only in a warm serverless instance's memory and may disappear between invocations.
-
-## Deploy and Telegram webhook
-
-The production deployment must include this code. Set Telegram's webhook URL to:
-
-`https://<your-production-domain>/api/bot`
-
-PowerShell example (enter the token locally; do not paste it in chat):
-
-```powershell
-$token = Read-Host "BOT_TOKEN"
-$webhook = "https://<your-production-domain>/api/bot"
-$body = @{ url = $webhook }
-# Only if TELEGRAM_WEBHOOK_SECRET is configured in Vercel:
-$body.secret_token = Read-Host "TELEGRAM_WEBHOOK_SECRET"
-Invoke-RestMethod -Method Post `
-  -Uri "https://api.telegram.org/bot$token/setWebhook" `
-  -Body $body
-```
-
-Do not set `$body.secret_token` if the Vercel variable is absent. Telegram's secret token must contain 1–256 characters from `A-Z`, `a-z`, `0-9`, `_`, and `-`.
+- `GEMINI_MODEL` — default chat model, defaults to `gemini-3.8-flash`. Model availability is determined by the selected API key.
+- `GEMINI_IMAGE_MODEL` — image generation model, defaults to `gemini-3-pro-image-preview`; availability must be checked for each API key.
+- `GEMINI_ALLOWED_MODELS` — comma-separated model IDs users/admins can select.
+- `MAX_FILE_BYTES` — media upload limit; defaults to 15 MB, capped at 18 MB.
+- `BOT_ACCESS_MODE` — `open` (default) or `allowlist`.
+- `BOT_ALLOWED_USER_IDS` — comma-separated initial allowed IDs when using allowlist mode.
+- `TELEGRAM_WEBHOOK_SECRET` — optional Telegram webhook secret; set the same value with Telegram `setWebhook`.
 
 ## User commands
 
-- `/start`, `/help`
-- `/settings` — show this user's model, memory/search setting, upload limit, feature status, and storage type
-- `/model <model-id>` — choose a model (restricted by `GEMINI_ALLOWED_MODELS` if set)
-- `/system <instructions>` — per-user assistant instruction; `/system` clears it
-- `/memory on|off` — continue or disable server-side interaction context
-- `/search on|off` — enable/disable Google Search grounding for this user
-- `/reset` — clear this user's conversation continuation
-- `/history` — show recent short activity records; prompts/files are not stored in logs
+- `/start`, `/help`, `/settings`
+- `/model <model-id>` — select chat model
+- `/system <instructions>` — customize assistant behavior; empty `/system` clears it
+- `/memory on|off`, `/search on|off`, `/reset`, `/history`
+- `/image <description>` — generate and send an image (requires an image-capable model/key)
+- `/table <request>` — create a table preview in chat and attach a real `.xlsx` spreadsheet
+- `/apikey set <key>` — set a personal Gemini API key **in a private chat only**
+- `/apikey status`, `/apikey delete`
+
+Personal keys are encrypted at rest using AES-256-GCM with `USER_API_KEYS_ENCRYPTION_KEY`. The key-setting command attempts to delete the Telegram message containing the key and never writes the key to app logs or shows it in `/settings`. Telegram may retain messages or delivery metadata; this is not a zero-disclosure channel. Users should create/revoke keys in Google AI Studio and must not send keys in groups. Each user's own Gemini account usage/billing applies when their key is selected. If no personal key exists, requests use the service key if configured. Personal keys do not bypass bot access controls or feature restrictions.
 
 ## Admin commands
 
-Configure `BOT_ADMIN_IDS`, redeploy, then:
+Admins are numeric IDs configured in `BOT_ADMIN_IDS`:
 
-- `/admin` — show admin command help
-- `/allow <telegram-id>` and `/deny <telegram-id>` — manage individual access
-- `/defaultmodel <model-id>` — set a runtime default
-- `/feature <text|image|document|audio|video|search> on|off` — globally enable/disable a capability
-- `/custom add <name> | <instructions>` — define a custom slash command
-- `/custom delete <name>` and `/custom list`
+- `/admin`
+- `/allow <telegram-id>`, `/deny <telegram-id>`
+- `/defaultmodel <model-id>`
+- `/feature <text|image|document|audio|video|search|image_generation|tables> on|off`
+- `/custom add <name> | <instructions>`, `/custom delete <name>`, `/custom list`
 
-Custom commands are prompt templates, not executable code. They are available to all users allowed to use the bot. Set `BOT_ACCESS_MODE=allowlist` to require explicit access. Admins are identified only by Telegram numeric IDs from `BOT_ADMIN_IDS`.
+Custom commands are prompt templates, not executable code. Allowlisting is configured using `BOT_ACCESS_MODE=allowlist` and `BOT_ALLOWED_USER_IDS` or `/allow`.
 
-## Media, memory, and privacy
+## Media, tables, memory, and storage
 
-Images, PDFs, text files, audio, and video are submitted to Gemini when supported by the selected model/API and within the configured size limit. Unsupported formats are rejected. Text document content is decoded as UTF-8. Telegram/Gemini have their own limits and model capability restrictions.
+Images, PDFs, supported text files, audio, and video are passed to Gemini as multimodal inputs subject to Google model support and size limits. `/table` asks Gemini for structured rows, sends a plain-text preview (Telegram messages do not provide native spreadsheet grid cells), and attaches a formatted, editable Excel `.xlsx` workbook. Media bytes are not retained in logs.
 
-Conversation continuation uses Gemini Interactions' previous interaction ID; the ID is retained in Redis when configured. Without Redis it is ephemeral and may be lost between serverless invocations. Activity logs contain a short prompt summary, model, type, status, and timestamp; they do not contain media bytes or full assistant responses. Redis stores settings, access flags, interaction IDs, custom command templates, and logs. Use a private Redis database and apply your data-retention policy.
+Conversation continuation uses Interactions API IDs. Activity logs contain short summaries, model, type, status, and timestamp. Upstash Redis persists settings, encrypted personal keys, interaction IDs, access lists, custom prompts, and logs. Without Redis, state is only ephemeral in serverless memory; do not rely on that for keys or settings. Configure private Redis and retention controls. The bot does not expose a user's personal API key to admins or other users.
+
+## Webhook and deployment
+
+Deploy the intended branch/commit in Vercel. Production code must include these changes. Set the webhook URL to `https://<your-domain>/api/bot`. If using `TELEGRAM_WEBHOOK_SECRET`, pass the identical value as Telegram's `secret_token` when calling `setWebhook`. Keep bot/API tokens and encryption secrets out of chat and source control.
 
 ## Troubleshooting
 
-If Gemini returns 404, verify that the selected model ID is available to your API key and that the deployment is using this branch/code. A successful Vercel build or GET health response does not test Telegram webhook delivery or Gemini model access. Check Vercel Runtime Logs after sending a test message.
+A successful build or GET health check does not prove Gemini model access. If model/image generation fails, verify that the exact model is enabled for the key used by that user and inspect Vercel Runtime Logs. Image generation model availability and billing may differ by account.
